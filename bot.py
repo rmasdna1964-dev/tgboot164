@@ -13,13 +13,14 @@ ADMIN_BOT_TOKEN = "8623258820:AAEInCHPfQXtgMcW6i5Ftt07ewy9JXFlxaE"
 # Твой реальный Telegram ID
 MY_TELEGRAM_ID = 8706958823
 
+# Инициализация ботов
 bot_shop = Bot(token=SHOP_TOKEN)
 bot_admin_sender = Bot(token=ADMIN_BOT_TOKEN)
 dp = Dispatcher()
 
 ITEM_TITLE = "Виртуальный номер +65"
 ITEM_DESCRIPTION = "Покупка номера +65 (Сингапур). В наличии 1 шт."
-PRICE_IN_STARS = 1  # Цена ровно 1 звезда
+PRICE_IN_STARS = 1  # Цена 1 звезда
 
 stock_available = True  # В наличии 1 шт. (+65)
 
@@ -52,17 +53,24 @@ async def process_buy(callback: types.CallbackQuery):
     )
     return
 
-  # Создаем счет на оплату в 1 звезду (валюта 'XTR')
   prices = [LabeledPrice(label="Номер +65", amount=PRICE_IN_STARS)]
 
-  await callback.message.answer_invoice(
-      title=ITEM_TITLE,
-      description=ITEM_DESCRIPTION,
-      prices=prices,
-      provider_token="",  # Для Telegram Stars всегда пустая строка
-      payload="number_65_payload",
-      currency="XTR",
-  )
+  try:
+    await callback.message.answer_invoice(
+        title=ITEM_TITLE,
+        description=ITEM_DESCRIPTION,
+        prices=prices,
+        provider_token="",  # Для Telegram Stars всегда пусто
+        payload="number_65_payload",
+        currency="XTR",
+    )
+  except Exception as e:
+    logging.error(f"Ошибка при создании инвойса: {e}")
+    await callback.answer(
+        "❌ Произошла ошибка при создании счета. Попробуй позже.", show_alert=True
+    )
+    return
+
   await callback.answer()
 
 
@@ -112,14 +120,13 @@ async def process_successful_payment(message: types.Message):
       f"⭐ **Сумма:** {PRICE_IN_STARS} Star"
   )
 
-  # Кнопка для быстрой связи с покупателем
   contact_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[
       types.InlineKeyboardButton(
           text="💬 Написать покупателю", url=f"tg://user?id={buyer_id}"
       )
   ]])
 
-  # 4. Второй бот шлет тебе уведомление в личку
+  # 4. Второй бот шлет уведомление в личку
   try:
     await bot_admin_sender.send_message(
         chat_id=MY_TELEGRAM_ID,
@@ -133,7 +140,11 @@ async def process_successful_payment(message: types.Message):
 
 async def main():
   logging.basicConfig(level=logging.INFO)
-  print("Бот-магазин запущен...")
+
+  # Сбрасываем зависшие соединения, чтобы бот точно начал отвечать
+  await bot_shop.delete_webhook(drop_pending_updates=True)
+
+  print("Бот-магазин успешно запущен и слушает сообщения...")
   await dp.start_polling(bot_shop)
 
 
