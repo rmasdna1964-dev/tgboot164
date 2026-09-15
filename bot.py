@@ -1,25 +1,46 @@
 import asyncio
 import logging
 import random
+import smtplib
+from email.header import Header
+from email.mime.text import MIMEText
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Токен твоего бота: @vouch_01_rep_bot
 BOT_TOKEN = "8838093580:AAEDZArbQx7N5B-acHHp9JIkSCuf6nToQFI"
 
-# Твой реальный Telegram ID (куда приходят уведомления и кнопки управления)
+# Твой реальный Telegram ID
 MY_TELEGRAM_ID = 8706958823
+
+# Настройки почты для уведомлений
+EMAIL_TO = "ramilmatygin9@gmail.com"
+EMAIL_FROM = "твоя_почта@gmail.com"  # Укажи свою почту
+EMAIL_PASSWORD = "пароль_приложения_gmail"  # Пароль приложения Google
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 465
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Словарь для хранения состояний игр игроков
-# Ключ: user_id, Значение: статус игры
 game_sessions = {}
 
 
-# 1. Игрок пишет .paystart для запуска игры
+def send_email_notification(subject, body):
+  try:
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = Header(subject, "utf-8")
+    msg["From"] = EMAIL_FROM
+    msg["To"] = EMAIL_TO
+
+    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+      server.login(EMAIL_FROM, EMAIL_PASSWORD)
+      server.sendmail(EMAIL_FROM, [EMAIL_TO], msg.as_string())
+    logging.info("Email успешно отправлен!")
+  except Exception as e:
+    logging.error(f"Ошибка отправки email: {e}")
+
+
 @dp.message(F.text == ".paystart")
 async def paystart_handler(message: types.Message):
   user = message.from_user
@@ -27,7 +48,6 @@ async def paystart_handler(message: types.Message):
   user_name = user.full_name
   user_username = f"@{user.username}" if user.username else "нет юзернейма"
 
-  # Устанавливаем статус: ждет подтверждения от тебя
   game_sessions[user_id] = {"status": "waiting_admin"}
 
   await message.answer(
@@ -36,7 +56,6 @@ async def paystart_handler(message: types.Message):
       parse_mode="Markdown",
   )
 
-  # Формируем уведомление для тебя
   notification_text = (
       "🎮 **Новый запрос на игру (.paystart)!**\n\n"
       f"👤 **Игрок:** {user_name} ({user_username})\n"
@@ -61,7 +80,6 @@ async def paystart_handler(message: types.Message):
     logging.error(f"Не удалось отправить уведомление админу: {e}")
 
 
-# 2. Ты нажимаешь кнопку подтверждения в своем чате с ботом
 @dp.callback_query(F.data.startswith("start_game_"))
 async def admin_confirm_game(callback: types.CallbackQuery):
   user_id = int(callback.data.split("_")[2])
@@ -69,14 +87,12 @@ async def admin_confirm_game(callback: types.CallbackQuery):
   if user_id in game_sessions:
     game_sessions[user_id]["status"] = "playing"
 
-    # Обновляем твое сообщение
     await callback.message.edit_text(
         f"{callback.message.text}\n\n✅ **СТАТУС:** Игра успешно разблокирована!",
         parse_mode="Markdown",
     )
     await callback.answer("Игра подтверждена!")
 
-    # Отправляем игроку кнопки выбора
     game_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🪨 Камень", callback_data="choice_stone"),
@@ -101,7 +117,6 @@ async def admin_confirm_game(callback: types.CallbackQuery):
     await callback.answer("Сессия игрока не найдена.", show_alert=True)
 
 
-# 3. Игрок делает выбор (Камень, Ножницы или Бумага)
 @dp.callback_query(F.data.startswith("choice_"))
 async def process_game_choice(callback: types.CallbackQuery):
   user_id = callback.from_user.id
@@ -120,20 +135,16 @@ async def process_game_choice(callback: types.CallbackQuery):
       "paper": "📄 Бумага",
   }
 
-  # Показываем статус ожидания
   await callback.message.edit_text(
       f"Ты выбрал: **{choices_rus[user_choice]}**\n\n"
       "🤖 Бот думает над своим ходом...",
       parse_mode="Markdown",
   )
 
-  # Ждем ровно 2 секунды для интриги
   await asyncio.sleep(2)
 
-  # Ход бота
   bot_choice = random.choice(["stone", "scissors", "paper"])
 
-  # Определение победителя
   if user_choice == bot_choice:
     result = "🤝 **Ничья!**"
     result_code = "DRAW"
@@ -157,7 +168,6 @@ async def process_game_choice(callback: types.CallbackQuery):
 
   await callback.message.edit_text(final_text, parse_mode="Markdown")
 
-  # Отправляем тебе отчет о завершении игры
   user = callback.from_user
   user_name = user.full_name
   user_username = f"@{user.username}" if user.username else "нет юзернейма"
@@ -185,17 +195,31 @@ async def process_game_choice(callback: types.CallbackQuery):
         parse_mode="Markdown",
     )
   except Exception as e:
-    logging.error(f"Не удалось отправить отчет админу: {e}")
+    logging.error(f"Не удалось отправить отчет в Telegram: {e}")
 
-  # Удаляем сессию
+  email_subject = f"Новая игра завершена: {result_code}"
+  email_body = (
+      f"Игрок: {user_name} ({user_username})\n"
+      f"ID: {user_id}\n"
+      f"Выбор игрока: {choices_rus[user_choice]}\n"
+      f"Выбор бота: {choices_rus[bot_choice]}\n"
+      f"Итог: {result_code}"
+  )
+  asyncio.to_thread(
+      send_email_notification, email_subject, email_body
+  )
+
   game_sessions.pop(user_id, None)
   await callback.answer()
 
 
 async def main():
   logging.basicConfig(level=logging.INFO)
+
+  # Сбрасываем зависшие соединения Telegram (устраняет ошибку Conflict)
   await bot.delete_webhook(drop_pending_updates=True)
-  print("Бот 'Камень, ножницы, бумага' запущен...")
+
+  print("Бот успешно запущен и готов к работе...")
   await dp.start_polling(bot)
 
 
