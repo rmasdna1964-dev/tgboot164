@@ -1,150 +1,209 @@
 import asyncio
 import logging
+import random
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.filters import CommandStart
-from aiogram.types import LabeledPrice
+from aiogram.filters import Command
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Токен первого бота (Магазин): @vouch_01_rep_bot
+# Токен первого бота (Игровой бот): @vouch_01_rep_bot
 SHOP_TOKEN = "8838093580:AAEDZArbQx7N5B-acHHp9JIkSCuf6nToQFI"
 
-# Токен второго бота (Админ-бот), который присылает тебе уведомления
+# Токен второго бота (Секретарь / Админ-бот)
 ADMIN_BOT_TOKEN = "8623258820:AAEInCHPfQXtgMcW6i5Ftt07ewy9JXFlxaE"
 
 # Твой реальный Telegram ID
 MY_TELEGRAM_ID = 8706958823
 
-# Инициализация ботов
 bot_shop = Bot(token=SHOP_TOKEN)
 bot_admin_sender = Bot(token=ADMIN_BOT_TOKEN)
 dp = Dispatcher()
 
-ITEM_TITLE = "Виртуальный номер +65"
-ITEM_DESCRIPTION = "Покупка номера +65 (Сингапур). В наличии 1 шт."
-PRICE_IN_STARS = 1  # Цена 1 звезда
-
-stock_available = True  # В наличии 1 шт. (+65)
+# Словарь для отслеживания состояния игр игроков
+# Ключ: user_id, Значение: {"status": "waiting_admin" / "playing" / "finished", "choice": None}
+game_sessions = {}
 
 
-@dp.message(CommandStart())
-async def start_handler(message: types.Message):
-  keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[
-      types.InlineKeyboardButton(
-          text=f"Купить номер +65 🇸🇬 ({PRICE_IN_STARS} ⭐)",
-          callback_data="buy_number"),
-  ]])
+# Команда .paystart для запуска игры
+@dp.message(F.text == ".paystart")
+async def paystart_handler(message: types.Message):
+  user = message.from_user
+  user_id = user.id
+  user_name = user.full_name
+  user_username = f"@{user.username}" if user.username else "нет юзернейма"
+
+  # Инициализируем сессию игрока (игра ждет подтверждения от админа)
+  game_sessions[user_id] = {"status": "waiting_admin", "choice": None}
+
   await message.answer(
-      "👋 Добро пожаловать в магазин номеров!\n\n"
-      "📦 **Товар в наличии:**\n"
-      "• Номер: `+65` (Сингапур)\n"
-      f"• Цена: **{PRICE_IN_STARS} ⭐**\n\n"
-      "Нажми кнопку ниже для покупки:",
-      reply_markup=keyboard,
+      "⏳ **Запрос на игру принят!**\n\n"
+      "Ожидаем подтверждения от администратора (секретаря)... Как только админ подтвердит, игра начнется!",
       parse_mode="Markdown",
   )
 
-
-@dp.callback_query(F.data == "buy_number")
-async def process_buy(callback: types.CallbackQuery):
-  global stock_available
-
-  if not stock_available:
-    await callback.answer(
-        "❌ Этот номер уже купили! Больше нет в наличии.", show_alert=True
-    )
-    return
-
-  prices = [LabeledPrice(label="Номер +65", amount=PRICE_IN_STARS)]
-
-  try:
-    await callback.message.answer_invoice(
-        title=ITEM_TITLE,
-        description=ITEM_DESCRIPTION,
-        prices=prices,
-        provider_token="",  # Для Telegram Stars всегда пусто
-        payload="number_65_payload",
-        currency="XTR",
-    )
-  except Exception as e:
-    logging.error(f"Ошибка при создании инвойса: {e}")
-    await callback.answer(
-        "❌ Произошла ошибка при создании счета. Попробуй позже.", show_alert=True
-    )
-    return
-
-  await callback.answer()
-
-
-@dp.pre_checkout_query()
-async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
-  global stock_available
-  if not stock_available:
-    await pre_checkout_query.answer(
-        ok=False, error_message="К сожалению, товар только что закончился!"
-    )
-    return
-  await pre_checkout_query.answer(ok=True)
-
-
-@dp.message(F.successful_payment)
-async def process_successful_payment(message: types.Message):
-  global stock_available
-
-  if not stock_available:
-    await message.answer("Ошибка: товар уже был продан.")
-    return
-
-  # Снимаем товар с наличия
-  stock_available = False
-  secret_number = "+65 1234 5678 (данные для входа / код)"
-
-  # 1. Выдаем номер покупателю
-  await message.answer(
-      "✅ **Оплата прошла успешно! Спасибо за покупку!** 🎉\n\n"
-      "Вот твой товар (номер +65):\n"
-      f"🔒 `{secret_number}`",
-      parse_mode="Markdown",
-  )
-
-  # 2. Собираем информацию о покупателе
-  buyer = message.from_user
-  buyer_name = buyer.full_name
-  buyer_username = f"@{buyer.username}" if buyer.username else "нет юзернейма"
-  buyer_id = buyer.id
-
-  # 3. Формируем отчет для тебя
+  # Формируем уведомление для тебя на второго бота
   notification_text = (
-      "🚨 **Купили номер за 1 звезду!**\n\n"
-      f"👤 **Покупатель:** {buyer_name} ({buyer_username})\n"
-      f"🆔 **ID:** `{buyer_id}`\n"
-      "📦 **Товар:** Номер +65\n"
-      f"⭐ **Сумма:** {PRICE_IN_STARS} Star"
+      "🎮 **Новый запрос на игру (.paystart)!**\n\n"
+      f"👤 **Игрок:** {user_name} ({user_username})\n"
+      f"🆔 **ID:** `{user_id}`\n\n"
+      "Нажми кнопку ниже, чтобы разрешить игроку начать:"
   )
 
-  contact_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[
-      types.InlineKeyboardButton(
-          text="💬 Написать покупателю", url=f"tg://user?id={buyer_id}"
+  # Кнопка подтверждения старта
+  admin_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+      InlineKeyboardButton(
+          text="✅ Подтвердить старт игры", callback_data=f"start_game_{user_id}"
       )
   ]])
 
-  # 4. Второй бот шлет уведомление в личку
   try:
     await bot_admin_sender.send_message(
         chat_id=MY_TELEGRAM_ID,
         text=notification_text,
-        reply_markup=contact_keyboard,
+        reply_markup=admin_keyboard,
         parse_mode="Markdown",
     )
   except Exception as e:
     logging.error(f"Не удалось отправить уведомление админу: {e}")
 
 
+# Обработка нажатия на кнопку "Подтвердить старт игры" во втором боте (прилетает в ЛС админу)
+@dp.callback_query(F.data.startswith("start_game_"))
+async def admin_confirm_game(callback: types.CallbackQuery):
+  # Извлекаем ID игрока из callback_data
+  user_id = int(callback.data.split("_")[2])
+
+  if user_id in game_sessions:
+    game_sessions[user_id]["status"] = "playing"
+
+    # Уведомляем тебя, что игра запущена
+    await callback.message.edit_text(
+        f"{callback.message.text}\n\n✅ **СТАТУС:** Игра успешно разблокирована для игрока!",
+        parse_mode="Markdown",
+    )
+    await callback.answer("Игра подтверждена!")
+
+    # Отправляем игроку клавиатуру для выбора в первом боте
+    game_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🪨 Камень", callback_data="choice_stone"),
+            InlineKeyboardButton(text="✂️ Ножницы", callback_data="choice_scissors"),
+        ],
+        [InlineKeyboardButton(text="📄 Бумага", callback_data="choice_paper")],
+    ])
+
+    try:
+      await bot_shop.send_message(
+          chat_id=user_id,
+          text=(
+              "🟢 **Администратор подтвердил старт!**\n\n"
+              "Игра началась! Выбери свой вариант:"
+          ),
+          reply_markup=game_keyboard,
+          parse_mode="Markdown",
+      )
+    except Exception as e:
+      logging.error(f"Не удалось отправить сообщение игроку: {e}")
+  else:
+    await callback.answer("Сессия игрока не найдена или устарела.", show_alert=True)
+
+
+# Обработка выбора игрока (Камень, Ножницы, Бумага)
+@dp.callback_query(F.data.startswith("choice_"))
+async def process_game_choice(callback: types.CallbackQuery):
+  user_id = callback.from_user.id
+
+  if (
+      user_id not in game_sessions
+      or game_sessions[user_id]["status"] != "playing"
+  ):
+    await callback.answer("Игра еще не началась или уже завершена!", show_alert=True)
+    return
+
+  user_choice = callback.data.split("_")[1]  # stone, scissors, paper
+  choices_rus = {
+      "stone": "🪨 Камень",
+      "scissors": "✂️ Ножницы",
+      "paper": "📄 Бумага",
+  }
+
+  # Меняем сообщение на статус ожидания (ждем 2 секунды)
+  await callback.message.edit_text(
+      f"Ты выбрал: **{choices_rus[user_choice]}**\n\n"
+      "🤖 Бот думает над своим ходом...",
+      parse_mode="Markdown",
+  )
+
+  # Ждем ровно 2 секунды для создания интриги
+  await asyncio.sleep(2)
+
+  # Ход бота (случайный выбор)
+  bot_choice = random.choice(["stone", "scissors", "paper"])
+
+  # Логика определения победителя
+  if user_choice == bot_choice:
+    result = "🤝 **Ничья!**"
+    result_code = "draw"
+  elif (
+      (user_choice == "stone" and bot_choice == "scissors")
+      or (user_choice == "scissors" and bot_choice == "paper")
+      or (user_choice == "paper" and bot_choice == "stone")
+  ):
+    result = "🎉 **Ты победил!**"
+    result_code = "win"
+  else:
+    result = "😢 **Победил бот!**"
+    result_code = "lose"
+
+  final_text = (
+      f"🎮 **Результаты игры:**\n\n"
+      f"👤 Твой выбор: {choices_rus[user_choice]}\n"
+      f"🤖 Выбор бота: {choices_rus[bot_choice]}\n\n"
+      f"{result}"
+  )
+
+  await callback.message.edit_text(final_text, parse_mode="Markdown")
+
+  # Собираем данные игрока для финального отчета тебе
+  user = callback.from_user
+  user_name = user.full_name
+  user_username = f"@{user.username}" if user.username else "нет юзернейма"
+
+  report_text = (
+      "📊 **Игра завершена!**\n\n"
+      f"👤 **Игрок:** {user_name} ({user_username})\n"
+      f"🆔 **ID:** `{user_id}`\n"
+      f"🎯 **Выбор игрока:** {choices_rus[user_choice]}\n"
+      f"🤖 **Выбор бота:** {choices_rus[bot_choice]}\n"
+      f"🏁 **Итог:** {result_code.upper()}"
+  )
+
+  # Кнопка для связи с этим конкретным игроком
+  contact_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+      InlineKeyboardButton(
+          text="💬 Написать игроку", url=f"tg://user?id={user_id}"
+      )
+  ]])
+
+  # Отправляем тебе отчет во второй бот
+  try:
+    await bot_admin_sender.send_message(
+        chat_id=MY_TELEGRAM_ID,
+        text=report_text,
+        reply_markup=contact_keyboard,
+        parse_mode="Markdown",
+    )
+  except Exception as e:
+    logging.error(f"Не удалось отправить итоговый отчет админу: {e}")
+
+  # Завершаем сессию
+  game_sessions.pop(user_id, None)
+  await callback.answer()
+
+
 async def main():
   logging.basicConfig(level=logging.INFO)
-
-  # Сбрасываем зависшие соединения, чтобы бот точно начал отвечать
   await bot_shop.delete_webhook(drop_pending_updates=True)
-
-  print("Бот-магазин успешно запущен и слушает сообщения...")
+  print("Бот 'Камень, ножницы, бумага' запущен и ожидает .paystart...")
   await dp.start_polling(bot_shop)
 
 
