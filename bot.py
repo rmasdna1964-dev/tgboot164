@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher, F, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Токен твоего бота: @vouch_01_rep_bot
-BOT_TOKEN = "8838093580:AAEDZArbQx7N5B-acHHp9JIkSCuf6nToQFI"
+BOT_TOKEN = "8838093580:AAFc5q5nE7Tend5tZVMAs9m8d9nRQTBfi24"
 
 # Твой реальный Telegram ID
 MY_TELEGRAM_ID = 8706958823
