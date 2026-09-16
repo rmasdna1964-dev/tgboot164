@@ -27,7 +27,6 @@ async def paystart_handler(message: types.Message, bot: Bot):
 
   game_sessions[user_id] = {"status": "waiting_admin", "chat_id": chat_id}
 
-  # Убрали опасный Markdown, чтобы избежать ошибок с символами в именах
   await message.answer(
       f"⏳ {user_name}, запрос на игру принят!\n\n"
       "Ожидаем подтверждения от администратора..."
