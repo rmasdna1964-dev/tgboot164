@@ -1,1 +1,2 @@
-aiogram>=3.0.0
+pip uninstall aiogram -y
+pip install aiogram==2.25.1
