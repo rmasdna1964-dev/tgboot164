@@ -10,7 +10,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Новый токен бота (@vouch_01_rep_bot)
+# Токен бота
 BOT_TOKEN = "8838093580:AAFqx0JsQfxnZLk1h9--4JhXF-FY0U6U-cQ"
 
 # Твой Telegram ID
@@ -42,7 +42,8 @@ def send_email_notification(subject, body):
     logging.error(f"Ошибка отправки email: {e}")
 
 
-@dp.message(F.text == ".paystart")
+# Обрабатываем .paystart и /paystart как в личке, так и в группах
+@dp.message(F.text.in_({".paystart", "/paystart"}))
 async def paystart_handler(message: types.Message, bot: Bot):
   user = message.from_user
   user_id = user.id
@@ -213,9 +214,10 @@ async def process_game_choice(callback: types.CallbackQuery, bot: Bot):
 
 
 async def main() -> None:
-  bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+  bot = Bot(
+      token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+  )
 
-  # Сбрасываем старые зависшие вебхуки/сессии
   await bot.delete_webhook(drop_pending_updates=True)
 
   logging.info("Бот успешно запущен!")
