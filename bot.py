@@ -1,111 +1,183 @@
-import asyncio
 import logging
 import random
-from aiogram import Bot, Dispatcher, F, types
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram import Bot, Dispatcher, types
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Токен твоего бота
 TOKEN = "8838093580:AAFqx0JsQfxnZLk1h9--4JhXF-FY0U6U-cQ"
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
-
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
 
-# Состояния для конечного автомата (FSM) игры
-class GameState(StatesGroup):
-  waiting_for_choice = State()
+# Состояния для групповой игры
+class ChatGameStates(StatesGroup):
+  waiting_for_players = State()
+  waiting_for_moves = State()
 
 
-# Словарь для красивого отображения ходов
-CHOICES = {
-    "rock": {"name": "✊ Камень", "emoji": "✊"},
-    "paper": {"name": "✋ Бумага", "emoji": "✋"},
-    "scissors": {"name": "✌️ Ножницы", "emoji": "✌️"},
-}
+# Хранение активных игр по ID чата
+# {chat_id: {"p1": user_id_1, "p1_name": name, "p2": user_id_2, "p2_name": name, "moves": {}}}
+group_games = {}
 
 
-# Обработчик команды /start
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message, state: FSMContext):
-  await state.clear()
-  user_name = message.from_user.first_name
-  welcome_text = (
-      f"Привет, **{user_name}**! 👋\n\n"
-      "Добро пожаловать в игру **Камень, ножницы, бумага**!\n"
-      "Я буду твоим соперником. Сыграем?\n\n"
-      "Нажми кнопку ниже, чтобы сделать свой ход!"
+# Команда .starts (и /starts на всякий случай)
+@dp.message_handler(commands=["starts"], chat_type=["group", "supergroup"], state="*")
+@dp.message_handler(
+    lambda msg: msg.text and msg.text.startswith(".starts"),
+    chat_type=["group", "supergroup"],
+    state="*",
+)
+async def start_group_game(message: types.Message, state: FSMContext):
+  chat_id = message.chat.id
+  user = message.from_user
+
+  keyboard = InlineKeyboardMarkup()
+  keyboard.add(
+      InlineKeyboardButton("🎮 Принять вызов", callback_data="accept_game")
   )
 
-  # Создаем инлайн-клавиатуру с выбором
-  builder = InlineKeyboardBuilder()
-  builder.button(
-      text="✊ Камень", callback_data="game_rock"
-  )
-  builder.button(text="✋ Бумага", callback_data="game_paper")
-  builder.button(text="✌️ Ножницы", callback_data="game_scissors")
-  builder.adjust(3)  
+  # Сохраняем первого игрока (создателя)
+  group_games[chat_id] = {
+      "p1": user.id,
+      "p1_name": user.first_name,
+      "p2": None,
+      "p2_name": None,
+      "moves": {},
+  }
 
   await message.answer(
-      welcome_text, reply_markup=builder.as_markup(), parse_mode="Markdown"
+      f"🎯 **{user.first_name}** создал игру «Камень, ножницы, бумага»!\n\n"
+      "Кто готов составить компанию? Нажмите кнопку ниже:",
+      reply_markup=keyboard,
+      parse_mode="Markdown",
   )
-  await state.set_state(GameState.waiting_for_choice)
+  await ChatGameStates.waiting_for_players.set()
 
 
-# Обработчик нажатия на кнопки игры
-@dp.callback_query(
-    GameState.waiting_for_choice, F.data.startswith("game_")
+# Второй игрок принимает вызов
+@dp.callback_query_handler(
+    lambda c: c.data == "accept_game", state=ChatGameStates.waiting_for_players
 )
-async def process_game_choice(callback: types.CallbackQuery, state: FSMContext):
-  user_choice = callback.data.split("_")[1]  # rock, paper или scissors
-  bot_choice = random.choice(["rock", "paper", "scissors"])
+async def accept_game(callback: types.CallbackQuery, state: FSMContext):
+  chat_id = callback.message.chat.id
+  user = callback.from_user
 
-  user_data = CHOICES[user_choice]
-  bot_data = CHOICES[bot_choice]
+  if chat_id not in group_games:
+    await callback.answer("Эта игра уже устарела или отменена.", show_alert=True)
+    return
 
-  # Логика определения победителя
-  if user_choice == bot_choice:
-    result_text = "🤝 **Ничья!**"
-  elif (
-      (user_choice == "rock" and bot_choice == "scissors")
-      or (user_choice == "paper" and bot_choice == "rock")
-      or (user_choice == "scissors" and bot_choice == "paper")
-  ):
-    result_text = "🎉 **Ты победил!**"
-  else:
-    result_text = "🤖 **Я победил!**"
+  game = group_games[chat_id]
 
-  # Формируем сообщение с итогами раунда
-  response_text = (
-      f"Твой ход: {user_data['name']}\n"
-      f"Мой ход: {bot_data['name']}\n\n"
-      f"{result_text}\n\n"
-      "Хочешь сыграть еще раз? Жми кнопку!"
+  # Защита, чтобы создатель не играл сам с собой
+  if user.id == game["p1"]:
+    await callback.answer("Ты не можешь играть сам с собой!", show_alert=True)
+    return
+
+  game["p2"] = user.id
+  game["p2_name"] = user.first_name
+
+  # Клавиатура с выбором хода
+  keyboard = InlineKeyboardMarkup(row_width=3)
+  keyboard.add(
+      InlineKeyboardButton("✊ Камень", callback_data="gmove_rock"),
+      InlineKeyboardButton("✋ Бумага", callback_data="gmove_paper"),
+      InlineKeyboardButton("✌️ Ножницы", callback_data="gmove_scissors"),
   )
 
-  # Кнопка для повторной игры
-  builder = InlineKeyboardBuilder()
-  builder.button(text="✊ Камень", callback_data="game_rock")
-  builder.button(text="✋ Бумага", callback_data="game_paper")
-  builder.button(text="✌️ Ножницы", callback_data="game_scissors")
-  builder.adjust(3)
-
-  # Редактируем сообщение, чтобы не засорять чат
   await callback.message.edit_text(
-      response_text, reply_markup=builder.as_markup(), parse_mode="Markdown"
+      f"🎉 Соперник найден!\n"
+      f"Дуэль: **{game['p1_name']}** VS **{game['p2_name']}**\n\n"
+      "Сделайте свои ходы (нажмите кнопку ниже, каждый выбирает для себя):",
+      reply_markup=keyboard,
+      parse_mode="Markdown",
   )
-  await callback.answer()
+  await ChatGameStates.waiting_for_moves.set()
 
 
-# Главная функция запуска поллинга
-async def main():
-  await dp.start_polling(bot)
+# Обработка ходов игроков в чате
+@dp.callback_query_handler(
+    lambda c: c.data.startswith("gmove_"), state=ChatGameStates.waiting_for_moves
+)
+async def process_group_move(callback: types.CallbackQuery, state: FSMContext):
+  chat_id = callback.message.chat.id
+  user_id = callback.from_user.id
+
+  if chat_id not in group_games:
+    await callback.answer("Игра не найдена.", show_alert=True)
+    return
+
+  game = group_games[chat_id]
+
+  # Проверяем, участвует ли этот пользователь в игре
+  if user_id != game["p1"] and user_id != game["p2"]:
+    await callback.answer("Ты не участник этой дуэли!", show_alert=True)
+    return
+
+  move = callback.data.split("_")[1]
+
+  # Проверяем, не ходил ли он уже
+  if user_id in game["moves"]:
+    await callback.answer("Ты уже сделал свой ход! Жди соперника.", show_alert=True)
+    return
+
+  # Сохраняем ход
+  game["moves"][user_id] = move
+  await callback.answer("Ход принят! 🤫")
+
+  # Проверяем, оба ли походили
+  if len(game["moves"]) == 2:
+    p1 = game["p1"]
+    p2 = game["p2"]
+    m1 = game["moves"][p1]
+    m2 = game["moves"][p2]
+
+    names = {"rock": "✊ Камень", "paper": "✋ Бумага", "scissors": "✌️ Ножницы"}
+
+    # Логика определения победителя
+    if m1 == m2:
+      result_text = "🤝 **Ничья!** Победителя нет."
+    elif (
+        (m1 == "rock" and m2 == "scissors")
+        or (m1 == "paper" and m2 == "rock")
+        or (m1 == "scissors" and m2 == "paper")
+    ):
+      result_text = f"🏆 Победил **{game['p1_name']}**! 🎉"
+    else:
+      result_text = f"🏆 Победил **{game['p2_name']}**! 🎉"
+
+    final_text = (
+        f"⚔️ **ИТОГИ ДУЭЛИ** ⚔️\n\n"
+        f"👤 {game['p1_name']}: {names[m1]}\n"
+        f"👤 {game['p2_name']}: {names[m2]}\n\n"
+        f"{result_text}"
+    )
+
+    await callback.message.edit_text(final_text, parse_mode="Markdown")
+
+    # Очищаем игру
+    group_games.pop(chat_id, None)
+    await state.finish()
+  else:
+    # Обновляем сообщение, чтобы показать, кто походил
+    waiting_for = (
+        game["p2_name"] if user_id == game["p1"] else game["p1_name"]
+    )
+    await callback.message.edit_text(
+        f"Дуэль: **{game['p1_name']}** VS **{game['p2_name']}**\n\n"
+        f"✅ Один игрок уже сделал ход.\n"
+        f"⏳ Ожидаем ход от игрока: **{waiting_for}**",
+        parse_mode="Markdown",
+    )
 
 
 if __name__ == "__main__":
-  asyncio.run(main())
+  from aiogram import executor
+
+  print("Бот для чатов запущен...")
+  executor.start_polling(dp, skip_updates=True)
