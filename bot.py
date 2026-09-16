@@ -7,7 +7,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Токен бота
+# Токен твоего бота
 BOT_TOKEN = "8838093580:AAFqx0JsQfxnZLk1h9--4JhXF-FY0U6U-cQ"
 
 # Твой Telegram ID администратора
@@ -17,16 +17,16 @@ dp = Dispatcher()
 game_sessions = {}
 
 
-# Команда срабатывает и в личке, и в любых группах/чатах
+# Команда срабатывает в ЛС и в группах (поддерживает .paystart и /paystart)
 @dp.message(F.text.in_({".paystart", "/paystart"}))
 async def paystart_handler(message: types.Message, bot: Bot):
   user = message.from_user
   user_id = user.id
   user_name = user.full_name
   user_username = f"@{user.username}" if user.username else "нет юзернейма"
-  chat_id = message.chat.id  # Определяем, где вызвана команда (личка или группа)
+  chat_id = message.chat.id  # Сохраняем ID чата, откуда пришел запрос
 
-  # Сохраняем сессию игры и привязываем к текущему чату
+  # Сохраняем сессию игры
   game_sessions[user_id] = {"status": "waiting_admin", "chat_id": chat_id}
 
   await message.answer(
@@ -183,7 +183,7 @@ async def process_game_choice(callback: types.CallbackQuery, bot: Bot):
         parse_mode="Markdown",
     )
   except Exception as e:
-    logging.error(f"Не удалось отправить отчет в Telegram: {e}")
+    logging.error(f"Не удалось отправить отчет админу: {e}")
 
   game_sessions.pop(user_id, None)
   await callback.answer()
@@ -194,9 +194,10 @@ async def main() -> None:
       token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
   )
 
+  # Сбрасываем вебхуки, чтобы polling работал без конфликтов
   await bot.delete_webhook(drop_pending_updates=True)
 
-  logging.info("Бот успешно запущен (режим без почты)!")
+  logging.info("Бот успешно запущен!")
   await dp.start_polling(bot)
 
 
