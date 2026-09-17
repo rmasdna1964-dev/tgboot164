@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -8,21 +9,20 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # Токен твоего бота
 TOKEN = "8838093580:AAFqx0JsQfxnZLk1h9--4JhXF-FY0U6U-cQ"
-# ID администратора, куда будут приходить заявки на вывод звезд (укажи свой Telegram ID)
-ADMIN_ID = 123456789  # Замени на свой реальный ID
+# ID администратора, куда будут приходить заявки на вывод звезд
+ADMIN_ID = 123456789  # Замени на свой реальный Telegram ID
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# База данных в памяти (в будущем лучше перенести на SQLite или Supabase)
-# Структура: user_id: {"balance": 1000, "last_bonus": 0}
+# База данных в памяти (балансы игроков)
 users_db = {}
 
 
 def get_user(user_id: int):
   if user_id not in users_db:
-    users_db[user_id] = {"balance": 500}  листартовый бонус 500 коинов
+    users_db[user_id] = {"balance": 500}  # Стартовый бонус 500 коинов
   return users_db[user_id]
 
 
@@ -31,7 +31,7 @@ class GameStates(StatesGroup):
   playing_rps = State()
 
 
-# Главное меню (клавиатура)
+# Главное меню
 def main_menu():
   builder = InlineKeyboardBuilder()
   builder.button(text="👤 Профиль", callback_data="profile")
@@ -47,7 +47,7 @@ def main_menu():
 async def cmd_start(message: types.Message, state: FSMContext):
   await state.clear()
   user = message.from_user
-  get_user(user.id)  # Инициализация игрока
+  get_user(user.id)
 
   text = (
       f"Привет, **{user.first_name}**! 🎮🤖\n\n"
@@ -82,7 +82,6 @@ async def show_profile(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "daily_bonus")
 async def daily_bonus(callback: types.CallbackQuery):
   user_data = get_user(callback.from_user.id)
-  # Упрощенно накидываем 200 коинов (можно привязать таймер по времени)
   user_data["balance"] += 200
 
   await callback.answer(
@@ -119,7 +118,6 @@ async def start_rps(callback: types.CallbackQuery, state: FSMContext):
     )
     return
 
-  # Снимаем ставку
   user_data["balance"] -= 100
 
   builder = InlineKeyboardBuilder()
@@ -135,9 +133,6 @@ async def start_rps(callback: types.CallbackQuery, state: FSMContext):
   await state.set_state(GameStates.playing_rps)
 
 
-import random
-
-
 # Обработка выбора в игре
 @dp.callback_query(GameStates.playing_rps, F.data.startswith("rps_"))
 async def process_rps(callback: types.CallbackQuery, state: FSMContext):
@@ -147,16 +142,15 @@ async def process_rps(callback: types.CallbackQuery, state: FSMContext):
 
   names = {"rock": "✊ Камень", "paper": "✋ Бумага", "scissors": "✌️ Ножницы"}
 
-  # Логика победы
   if user_choice == bot_choice:
-    user_data["balance"] += 100  # Возврат ставки
+    user_data["balance"] += 100
     res = "🤝 **Ничья!** Ставка возвращена."
   elif (
       (user_choice == "rock" and bot_choice == "scissors")
       or (user_choice == "paper" and bot_choice == "rock")
       or (user_choice == "scissors" and bot_choice == "paper")
   ):
-    user_data["balance"] += 200  # Выигрыш
+    user_data["balance"] += 200
     res = "🎉 **Ты победил и выиграл 200 коинов!**"
   else:
     res = "😢 **Ты проиграл ставку 100 коинов.**"
@@ -192,10 +186,7 @@ async def withdraw_stars(callback: types.CallbackQuery):
     )
     return
 
-  # Списываем баланс
   user_data["balance"] -= price
-
-  # Уведомляем админа
   user = callback.from_user
   try:
     await bot.send_message(
