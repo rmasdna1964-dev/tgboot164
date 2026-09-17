@@ -22,7 +22,7 @@ def get_user(user_id: int):
   if user_id not in users_db:
     users_db[user_id] = {
         "balance": 500,
-        "last_bonus": 0,  # Время последнего получения бонуса
+        "last_bonus": 0,
     }
   return users_db[user_id]
 
@@ -83,11 +83,10 @@ async def daily_bonus(callback: types.CallbackQuery):
   user_data = get_user(user_id)
 
   current_time = time.time()
-  cooldown = 24 * 60 * 60  # 24 часа в секундах
+  cooldown = 24 * 60 * 60  # 24 часа
   time_passed = current_time - user_data["last_bonus"]
 
   if time_passed < cooldown:
-    # Считаем, сколько осталось ждать
     left_seconds = int(cooldown - time_passed)
     hours = left_seconds // 3600
     minutes = (left_seconds % 3600) // 60
@@ -98,7 +97,6 @@ async def daily_bonus(callback: types.CallbackQuery):
     )
     return
 
-  # Выдаем бонус
   user_data["last_bonus"] = current_time
   bonus_amount = 300
   user_data["balance"] += bonus_amount
@@ -129,7 +127,7 @@ async def start_rps(callback: types.CallbackQuery, state: FSMContext):
     )
     return
 
-  user_data["balance"] -= 100
+  user_data["balance"] -= 100  # Списываем ставку
 
   builder = InlineKeyboardBuilder()
   builder.button(text="✊ Камень", callback_data="rps_rock")
@@ -159,17 +157,17 @@ async def process_rps(callback: types.CallbackQuery, state: FSMContext):
   names = {"rock": "✊ Камень", "paper": "✋ Бумага", "scissors": "✌️ Ножницы"}
 
   if user_choice == bot_choice:
-    user_data["balance"] += 100
+    user_data["balance"] += 100  # Возврат ставки при ничьей
     res = "Ничья! Ставка возвращена."
   elif (
       (user_choice == "rock" and bot_choice == "scissors")
       or (user_choice == "paper" and bot_choice == "rock")
       or (user_choice == "scissors" and bot_choice == "paper")
   ):
-    user_data["balance"] += 200
+    user_data["balance"] += 200  # Возврат + выигрыш
     res = "Победа! Вы выиграли 200 коинов!"
   else:
-    res = "Поражение. Ставка сгорела."
+    res = "Поражение. Ставка сгорела."  # Ставка уже списана в начале
 
   builder = InlineKeyboardBuilder()
   builder.button(text="🔄 Сыграть еще", callback_data="start_rps")
@@ -218,7 +216,7 @@ async def menu_dice(callback: types.CallbackQuery, state: FSMContext):
 async def process_dice(callback: types.CallbackQuery, state: FSMContext):
   user_bet = int(callback.data.split("_")[2])
   user_data = get_user(callback.from_user.id)
-  user_data["balance"] -= 150
+  user_data["balance"] -= 150  # Списываем ставку
 
   await callback.message.edit_text(
       f"Вы поставили на число {user_bet}.\nБросаем игральный кубик... 🎲"
@@ -265,7 +263,7 @@ async def menu_basket(callback: types.CallbackQuery, state: FSMContext):
     )
     return
 
-  user_data["balance"] -= 200
+  user_data["balance"] -= 200  # Списываем ставку
   await callback.message.edit_text(
       "Баскетбольная дуэль (Ставка: 200 коинов)\n\nБросаем мяч в кольцо... 🏟️"
   )
