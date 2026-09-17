@@ -29,7 +29,7 @@ class GameStates(StatesGroup):
   playing_basket = State()
 
 
-# Главное меню с геймерским дизайном
+# Главное меню
 def main_menu():
   builder = InlineKeyboardBuilder()
   builder.button(text="👤 Мой профиль", callback_data="profile")
@@ -38,8 +38,6 @@ def main_menu():
   builder.button(text="🎲 Кости (Угадай число)", callback_data="menu_dice")
   builder.button(text="🏀 Баскетбол (Попади в кольцо)", callback_data="menu_basket")
   builder.button(text="🌟 Вывод 15 Звезд (50k)", callback_data="withdraw")
-
-  # Расположение кнопок в столбик для красоты
   builder.adjust(1, 1, 1, 1, 1, 1)
   return builder.as_markup()
 
@@ -51,27 +49,26 @@ async def cmd_start(message: types.Message, state: FSMContext):
   get_user(user.id)
 
   text = (
-      f"💎 **Добро пожаловать в Arcade & Crypto Hub, {user.first_name}!** 💎\n\n"
-      "Здесь ты можешь испытать удачу в крутых мини-играх, поднять банк и вывести реальные Telegram Stars! ⭐\n\n"
-      "👇 Выбери режим в меню ниже:"
+      f"Добро пожаловать в Arcade & Crypto Hub, {user.first_name}!\n\n"
+      "Здесь ты можешь испытать удачу в крутых мини-играх, поднять банк и вывести"
+      " реальные Telegram Stars! ⭐\n\n"
+      "Выбери режим в меню ниже:"
   )
-  await message.answer(text, reply_markup=main_menu(), parse_mode="Markdown")
+  await message.answer(text, reply_markup=main_menu())
 
 
 @dp.callback_query(F.data == "profile")
 async def show_profile(callback: types.CallbackQuery):
   user_data = get_user(callback.from_user.id)
   text = (
-      "📊 **Твой игровой профиль:**\n\n"
-      f"💰 Баланс: **{user_data['balance']} коинов**\n"
-      "⭐ Курс обмена: 50 000 коинов = 15 Telegram Stars"
+      "Твой игровой профиль:\n\n"
+      f"Баланс: {user_data['balance']} коинов\n"
+      "Курс обмена: 50 000 коинов = 15 Telegram Stars"
   )
   builder = InlineKeyboardBuilder()
   builder.button(text="◀️ Назад в меню", callback_data="back_home")
 
-  await callback.message.edit_text(
-      text, reply_markup=builder.as_markup(), parse_mode="Markdown"
-  )
+  await callback.message.edit_text(text, reply_markup=builder.as_markup())
   await callback.answer()
 
 
@@ -90,9 +87,7 @@ async def daily_bonus(callback: types.CallbackQuery):
 async def back_home(callback: types.CallbackQuery, state: FSMContext):
   await state.clear()
   await callback.message.edit_text(
-      "💎 **Главное меню игрового центра:**",
-      reply_markup=main_menu(),
-      parse_mode="Markdown",
+      "Главное меню игрового центра:", reply_markup=main_menu()
   )
   await callback.answer()
 
@@ -117,9 +112,8 @@ async def start_rps(callback: types.CallbackQuery, state: FSMContext):
   builder.adjust(3, 1)
 
   await callback.message.edit_text(
-      "⚔️ **Дуэль КНБ (Ставка: 100 коинов)**\nВыберите свой ход:",
+      "Дуэль КНБ (Ставка: 100 коинов)\nВыберите свой ход:",
       reply_markup=builder.as_markup(),
-      parse_mode="Markdown",
   )
   await state.set_state(GameStates.playing_rps)
 
@@ -129,8 +123,7 @@ async def process_rps(callback: types.CallbackQuery, state: FSMContext):
   user_choice = callback.data.split("_")[1]
 
   await callback.message.edit_text(
-      "⏳ **Бот анализирует поле боя...**\n*Ожидание результатов (2 сек)* 🎲",
-      parse_mode="Markdown",
+      "Бот анализирует поле боя...\nОжидание результатов (2 сек) 🎲"
   )
   await asyncio.sleep(2)
 
@@ -140,16 +133,16 @@ async def process_rps(callback: types.CallbackQuery, state: FSMContext):
 
   if user_choice == bot_choice:
     user_data["balance"] += 100
-    res = "🤝 **Ничья!** Ставка возвращена."
+    res = "Ничья! Ставка возвращена."
   elif (
       (user_choice == "rock" and bot_choice == "scissors")
       or (user_choice == "paper" and bot_choice == "rock")
       or (user_choice == "scissors" and bot_choice == "paper")
   ):
     user_data["balance"] += 200
-    res = "🏆 **Победа! Вы выиграли 200 коинов!**"
+    res = "Победа! Вы выиграли 200 коинов!"
   else:
-    res = "😢 **Поражение. Ставка сгорела.**"
+    res = "Поражение. Ставка сгорела."
 
   builder = InlineKeyboardBuilder()
   builder.button(text="🔄 Сыграть еще", callback_data="start_rps")
@@ -157,15 +150,13 @@ async def process_rps(callback: types.CallbackQuery, state: FSMContext):
   builder.adjust(1)
 
   text = (
-      f"🎯 **ИТОГИ ДУЭЛИ**\n\n"
-      f"👤 Ваш выбор: {names[user_choice]}\n"
-      f"🤖 Выбор бота: {names[bot_choice]}\n\n"
+      "ИТОГИ ДУЭЛИ\n\n"
+      f"Ваш выбор: {names[user_choice]}\n"
+      f"Выбор бота: {names[bot_choice]}\n\n"
       f"{res}\n\n"
-      f"💰 Баланс: **{user_data['balance']} коинов**"
+      f"Баланс: {user_data['balance']} коинов"
   )
-  await callback.message.edit_text(
-      text, reply_markup=builder.as_markup(), parse_mode="Markdown"
-  )
+  await callback.message.edit_text(text, reply_markup=builder.as_markup())
   await state.clear()
 
 
@@ -187,12 +178,11 @@ async def menu_dice(callback: types.CallbackQuery, state: FSMContext):
   builder.adjust(3, 3, 1)
 
   await callback.message.edit_text(
-      "🎲 **Игра «Кости» (Ставка: 150 коинов)**\n\n"
+      "Игра «Кости» (Ставка: 150 коинов)\n\n"
       "Угадайте, какое число выпадет на кубике (от 1 до 6).\n"
-      "При угадывании вы получаете **х3 выигрыш (450 коинов)**!\n\n"
+      "При угадывании вы получаете х3 выигрыш (450 коинов)!\n\n"
       "Выберите число:",
       reply_markup=builder.as_markup(),
-      parse_mode="Markdown",
   )
   await state.set_state(GameStates.playing_dice_choice)
 
@@ -204,9 +194,7 @@ async def process_dice(callback: types.CallbackQuery, state: FSMContext):
   user_data["balance"] -= 150
 
   await callback.message.edit_text(
-      f"🎲 Вы поставили на число **{user_bet}**.\n"
-      "Бросаем игральный кубик... 🎲",
-      parse_mode="Markdown",
+      f"Вы поставили на число {user_bet}.\nБросаем игральный кубик... 🎲"
   )
   await asyncio.sleep(1)
 
@@ -219,13 +207,12 @@ async def process_dice(callback: types.CallbackQuery, state: FSMContext):
     win_sum = 450
     user_data["balance"] += win_sum
     result_text = (
-        f"🎉 **Джекпот! Вы угадали число!**\nВыпало: {rolled_value}\nВы выиграли"
-        f" **{win_sum} коинов**!"
+        f"Джекпот! Вы угадали число!\nВыпало: {rolled_value}\nВы выиграли"
+        f" {win_sum} коинов!"
     )
   else:
     result_text = (
-        f"😢 **Не угадали.**\nВыпало число {rolled_value}, а вы ставили на"
-        f" {user_bet}."
+        f"Не угадали.\nВыпало число {rolled_value}, а вы ставили на {user_bet}."
     )
 
   builder = InlineKeyboardBuilder()
@@ -234,9 +221,8 @@ async def process_dice(callback: types.CallbackQuery, state: FSMContext):
   builder.adjust(1)
 
   await callback.message.answer(
-      f"{result_text}\n\n💰 Баланс: **{user_data['balance']} коинов**",
+      f"{result_text}\n\nБаланс: {user_data['balance']} коинов",
       reply_markup=builder.as_markup(),
-      parse_mode="Markdown",
   )
   await state.clear()
 
@@ -254,9 +240,7 @@ async def menu_basket(callback: types.CallbackQuery, state: FSMContext):
 
   user_data["balance"] -= 200
   await callback.message.edit_text(
-      "🏀 **Баскетбольная дуэль (Ставка: 200 коинов)**\n\n"
-      "Бросаем мяч в кольцо... Попадете или мимо? 🏟️",
-      parse_mode="Markdown",
+      "Баскетбольная дуэль (Ставка: 200 коинов)\n\nБросаем мяч в кольцо... 🏟️"
   )
   await asyncio.sleep(1)
 
@@ -269,13 +253,9 @@ async def menu_basket(callback: types.CallbackQuery, state: FSMContext):
   if is_goal:
     win_sum = 400
     user_data["balance"] += win_sum
-    res_text = (
-        "🎯 **Чистый гол! Мяч в кольце!** 🏀🔥\nВы выиграли **400 коинов**!"
-    )
+    res_text = "Чистый гол! Мяч в кольце! 🏀\nВы выиграли 400 коинов!"
   else:
-    res_text = (
-        "❌ **Мимо! Мяч отскочил от кольца.**\nК сожалению, ставка сгорела."
-    )
+    res_text = "Мимо! Мяч отскочил от кольца.\nК сожалению, ставка сгорела."
 
   builder = InlineKeyboardBuilder()
   builder.button(text="🔄 Бросить снова", callback_data="menu_basket")
@@ -283,9 +263,8 @@ async def menu_basket(callback: types.CallbackQuery, state: FSMContext):
   builder.adjust(1)
 
   await callback.message.answer(
-      f"{res_text}\n\n💰 Баланс: **{user_data['balance']} коинов**",
+      f"{res_text}\n\nБаланс: {user_data['balance']} коинов",
       reply_markup=builder.as_markup(),
-      parse_mode="Markdown",
   )
   await state.clear()
 
@@ -308,11 +287,10 @@ async def withdraw_stars(callback: types.CallbackQuery):
   try:
     await bot.send_message(
         ADMIN_ID,
-        "🚨 **НОВАЯ ЗАЯВКА НА ВЫВОД ЗВЕЗД!**\n\n"
-        f"👤 Пользователь: @{user.username} (ID: `{user.id}`)\n"
-        f"💸 Списано коинов: {price}\n"
-        "⭐ К выдаче: **15 Telegram Stars**",
-        parse_mode="Markdown",
+        "НОВАЯ ЗАЯВКА НА ВЫВОД ЗВЕЗД!\n\n"
+        f"Пользователь: @{user.username} (ID: {user.id})\n"
+        f"Списано коинов: {price}\n"
+        "К выдаче: 15 Telegram Stars",
     )
   except Exception:
     pass
@@ -321,16 +299,15 @@ async def withdraw_stars(callback: types.CallbackQuery):
   builder.button(text="🏠 На главную", callback_data="back_home")
 
   await callback.message.edit_text(
-      "✅ **Заявка успешно оформлена!**\n\n"
+      "Заявка успешно оформлена!\n\n"
       "С вашего баланса списано 50 000 коинов.\n"
       "Администратор вскоре проверит запрос и переведет 15 Telegram Stars (⭐).",
       reply_markup=builder.as_markup(),
-      parse_mode="Markdown",
   )
 
 
 async def main():
-  print("Бот успешно запущен и готов к работе...")
+  print("Бот успешно запущен и работает без ошибок парсинга...")
   await dp.start_polling(bot)
 
 
