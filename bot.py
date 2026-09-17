@@ -8,161 +8,231 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # Токен твоего бота
 TOKEN = "8838093580:AAFqx0JsQfxnZLk1h9--4JhXF-FY0U6U-cQ"
+# ID администратора, куда будут приходить заявки на вывод звезд (укажи свой Telegram ID)
+ADMIN_ID = 123456789  # Замени на свой реальный ID
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Хранилище активных игр в чатах
-group_games = {}
+# База данных в памяти (в будущем лучше перенести на SQLite или Supabase)
+# Структура: user_id: {"balance": 1000, "last_bonus": 0}
+users_db = {}
 
 
-class ChatGameStates(StatesGroup):
-  waiting_for_players = State()
-  waiting_for_moves = State()
+def get_user(user_id: int):
+  if user_id not in users_db:
+    users_db[user_id] = {"balance": 500}  листартовый бонус 500 коинов
+  return users_db[user_id]
 
 
-# Обработка команды .starts (и /starts)
-@dp.message(
-    F.chat.type.in_({"group", "supergroup"}),
-    (F.text == ".starts") | Command("starts"),
-)
-async def start_group_game(message: types.Message, state: FSMContext):
-  chat_id = message.chat.id
-  user = message.from_user
+# Состояния для игры на ставки
+class GameStates(StatesGroup):
+  playing_rps = State()
 
+
+# Главное меню (клавиатура)
+def main_menu():
   builder = InlineKeyboardBuilder()
-  builder.button(text="🎮 Принять вызов", callback_data="accept_game")
+  builder.button(text="👤 Профиль", callback_data="profile")
+  builder.button(text="🎁 Бонус", callback_data="daily_bonus")
+  builder.button(text="🎮 Играть (КНБ)", callback_data="play_menu")
+  builder.button(text="🌟 Вывод звезд (50k коинов)", callback_data="withdraw")
+  builder.adjust(2, 2)
+  return builder.as_markup()
 
-  group_games[chat_id] = {
-      "p1": user.id,
-      "p1_name": user.first_name,
-      "p2": None,
-      "p2_name": None,
-      "moves": {},
-  }
 
-  await message.answer(
-      f"🎯 **{user.first_name}** создал игру «Камень, ножницы, бумага»!\n\n"
-      "Кто готов составить компанию? Нажми кнопку ниже:",
+# Команда /start
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message, state: FSMContext):
+  await state.clear()
+  user = message.from_user
+  get_user(user.id)  # Инициализация игрока
+
+  text = (
+      f"Привет, **{user.first_name}**! 🎮🤖\n\n"
+      "Добро пожаловать в экономическую мини-игру!\n"
+      "• Зарабатывай коины в играх.\n"
+      "• Получай ежедневные бонусы.\n"
+      "• Обменивай 50 000 коинов на 15 Telegram Stars (⭐)!\n\n"
+      "Выбирай раздел в меню ниже:"
+  )
+  await message.answer(text, reply_markup=main_menu(), parse_mode="Markdown")
+
+
+# Профиль
+@dp.callback_query(F.data == "profile")
+async def show_profile(callback: types.CallbackQuery):
+  user_data = get_user(callback.from_user.id)
+  text = (
+      f"👤 **Твой профиль:**\n\n"
+      f"💰 Баланс: **{user_data['balance']} коинов**\n"
+      f"⭐ Курс вывода: 50 000 коинов = 15 Звезд"
+  )
+  builder = InlineKeyboardBuilder()
+  builder.button(text="◀️ Назад", callback_data="back_home")
+
+  await callback.message.edit_text(
+      text, reply_markup=builder.as_markup(), parse_mode="Markdown"
+  )
+  await callback.answer()
+
+
+# Ежедневный бонус
+@dp.callback_query(F.data == "daily_bonus")
+async def daily_bonus(callback: types.CallbackQuery):
+  user_data = get_user(callback.from_user.id)
+  # Упрощенно накидываем 200 коинов (можно привязать таймер по времени)
+  user_data["balance"] += 200
+
+  await callback.answer(
+      "🎁 Ты получил ежедневный бонус: +200 коинов!", show_alert=True
+  )
+  await show_profile(callback)
+
+
+# Меню игры
+@dp.callback_query(F.data == "play_menu")
+async def play_menu(callback: types.CallbackQuery):
+  builder = InlineKeyboardBuilder()
+  builder.button(
+      text="⚔️ Дуэль КНБ (ставка 100 коинов)", callback_data="start_rps"
+  )
+  builder.button(text="◀️ Назад", callback_data="back_home")
+  builder.adjust(1)
+
+  await callback.message.edit_text(
+      "🎮 **Выбери игру:**\n\n"
+      "В «Камень, ножницы, бумага» ставка составляет 100 коинов. Победитель забирает 200!",
       reply_markup=builder.as_markup(),
       parse_mode="Markdown",
   )
-  await state.set_state(ChatGameStates.waiting_for_players)
 
 
-# Принятие вызова вторым игроком
-@dp.callback_query(
-    ChatGameStates.waiting_for_players, F.data == "accept_game"
-)
-async def accept_game(callback: types.CallbackQuery, state: FSMContext):
-  chat_id = callback.message.chat.id
-  user = callback.from_user
-
-  if chat_id not in group_games:
+# Запуск игры КНБ
+@dp.callback_query(F.data == "start_rps")
+async def start_rps(callback: types.CallbackQuery, state: FSMContext):
+  user_data = get_user(callback.from_user.id)
+  if user_data["balance"] < 100:
     await callback.answer(
-        "Эта игра уже устарела или отменена.", show_alert=True
+        "❌ Недостаточно коинов! Нужно минимум 100 коинов.", show_alert=True
     )
     return
 
-  game = group_games[chat_id]
-
-  if user.id == game["p1"]:
-    await callback.answer("Ты не можешь играть сам с собой!", show_alert=True)
-    return
-
-  game["p2"] = user.id
-  game["p2_name"] = user.first_name
+  # Снимаем ставку
+  user_data["balance"] -= 100
 
   builder = InlineKeyboardBuilder()
-  builder.button(text="✊ Камень", callback_data="gmove_rock")
-  builder.button(text="✋ Бумага", callback_data="gmove_paper")
-  builder.button(text="✌️ Ножницы", callback_data="gmove_scissors")
+  builder.button(text="✊ Камень", callback_data="rps_rock")
+  builder.button(text="✋ Бумага", callback_data="rps_paper")
+  builder.button(text="✌️ Ножницы", callback_data="rps_scissors")
   builder.adjust(3)
 
   await callback.message.edit_text(
-      f"🎉 Соперник найден!\n"
-      f"Дуэль: **{game['p1_name']}** VS **{game['p2_name']}**\n\n"
-      "Сделайте свои ходы (каждый нажимает кнопку для себя):",
+      "⚔️ Ставка 100 коинов принята!\nСделай свой выбор:",
+      reply_markup=builder.as_markup(),
+  )
+  await state.set_state(GameStates.playing_rps)
+
+
+import random
+
+
+# Обработка выбора в игре
+@dp.callback_query(GameStates.playing_rps, F.data.startswith("rps_"))
+async def process_rps(callback: types.CallbackQuery, state: FSMContext):
+  user_choice = callback.data.split("_")[1]
+  bot_choice = random.choice(["rock", "paper", "scissors"])
+  user_data = get_user(callback.from_user.id)
+
+  names = {"rock": "✊ Камень", "paper": "✋ Бумага", "scissors": "✌️ Ножницы"}
+
+  # Логика победы
+  if user_choice == bot_choice:
+    user_data["balance"] += 100  # Возврат ставки
+    res = "🤝 **Ничья!** Ставка возвращена."
+  elif (
+      (user_choice == "rock" and bot_choice == "scissors")
+      or (user_choice == "paper" and bot_choice == "rock")
+      or (user_choice == "scissors" and bot_choice == "paper")
+  ):
+    user_data["balance"] += 200  # Выигрыш
+    res = "🎉 **Ты победил и выиграл 200 коинов!**"
+  else:
+    res = "😢 **Ты проиграл ставку 100 коинов.**"
+
+  builder = InlineKeyboardBuilder()
+  builder.button(text="🎮 Играть еще", callback_data="play_menu")
+  builder.button(text="🏠 В меню", callback_data="back_home")
+  builder.adjust(2)
+
+  text = (
+      f"Твой выбор: {names[user_choice]}\n"
+      f"Выбор бота: {names[bot_choice]}\n\n"
+      f"{res}\n\n"
+      f"💰 Твой баланс: {user_data['balance']} коинов"
+  )
+
+  await callback.message.edit_text(
+      text, reply_markup=builder.as_markup(), parse_mode="Markdown"
+  )
+  await state.clear()
+
+
+# Логика вывода звезд
+@dp.callback_query(F.data == "withdraw")
+async def withdraw_stars(callback: types.CallbackQuery):
+  user_data = get_user(callback.from_user.id)
+  price = 50000
+
+  if user_data["balance"] < price:
+    await callback.answer(
+        f"❌ Недостаточно коинов! У тебя {user_data['balance']}, а нужно {price}.",
+        show_alert=True,
+    )
+    return
+
+  # Списываем баланс
+  user_data["balance"] -= price
+
+  # Уведомляем админа
+  user = callback.from_user
+  try:
+    await bot.send_message(
+        ADMIN_ID,
+        f"🚨 **Заявка на вывод звезд!**\n\n"
+        f"От пользователя: @{user.username} (ID: `{user.id}`)\n"
+        f"Списано коинов: {price}\n"
+        f"Сумма к выдаче: **15 Звезд (⭐)**",
+        parse_mode="Markdown",
+    )
+  except Exception:
+    pass
+
+  builder = InlineKeyboardBuilder()
+  builder.button(text="🏠 В меню", callback_data="back_home")
+
+  await callback.message.edit_text(
+      "✅ **Заявка успешно создана!**\n\n"
+      "С вашего баланса списано 50 000 коинов.\n"
+      "Администратор скоро свяжется с вами и отправит 15 Telegram Stars (⭐).",
       reply_markup=builder.as_markup(),
       parse_mode="Markdown",
   )
-  await state.set_state(ChatGameStates.waiting_for_moves)
 
 
-# Обработка ходов
-@dp.callback_query(ChatGameStates.waiting_for_moves, F.data.startswith("gmove_"))
-async def process_group_move(callback: types.CallbackQuery, state: FSMContext):
-  chat_id = callback.message.chat.id
-  user_id = callback.from_user.id
-
-  if chat_id not in group_games:
-    await callback.answer("Игра не найдена.", show_alert=True)
-    return
-
-  game = group_games[chat_id]
-
-  if user_id != game["p1"] and user_id != game["p2"]:
-    await callback.answer("Ты не участник этой дуэли!", show_alert=True)
-    return
-
-  if user_id in game["moves"]:
-    await callback.answer(
-        "Ты уже сделал свой ход! Жди соперника.", show_alert=True
-    )
-    return
-
-  move = callback.data.split("_")[1]
-  game["moves"][user_id] = move
-  await callback.answer("Ход принят! 🤫")
-
-  if len(game["moves"]) == 2:
-    p1 = game["p1"]
-    p2 = game["p2"]
-    m1 = game["moves"][p1]
-    m2 = game["moves"][p2]
-
-    names = {
-        "rock": "✊ Камень",
-        "paper": "✋ Бумага",
-        "scissors": "✌️ Ножницы",
-    }
-
-    if m1 == m2:
-      result_text = "🤝 **Ничья!** Победителя нет."
-    elif (
-        (m1 == "rock" and m2 == "scissors")
-        or (m1 == "paper" and m2 == "rock")
-        or (m1 == "scissors" and m2 == "paper")
-    ):
-      result_text = f"🏆 Победил **{game['p1_name']}**! 🎉"
-    else:
-      result_text = f"🏆 Победил **{game['p2_name']}**! 🎉"
-
-    final_text = (
-        f"⚔️ **ИТОГИ ДУЭЛИ** ⚔️\n\n"
-        f"👤 {game['p1_name']}: {names[m1]}\n"
-        f"👤 {game['p2_name']}: {names[m2]}\n\n"
-        f"{result_text}"
-    )
-
-    await callback.message.edit_text(final_text, parse_mode="Markdown")
-    group_games.pop(chat_id, None)
-    await state.clear()
-  else:
-    waiting_for = (
-        game["p2_name"] if user_id == game["p1"] else game["p1_name"]
-    )
-    await callback.message.edit_text(
-        f"Дуэль: **{game['p1_name']}** VS **{game['p2_name']}**\n\n"
-        f"✅ Один игрок уже сделал ход.\n"
-        f"⏳ Ожидаем ход от игрока: **{waiting_for}**",
-        parse_mode="Markdown",
-    )
+# Возврат в главное меню
+@dp.callback_query(F.data == "back_home")
+async def back_home(callback: types.CallbackQuery, state: FSMContext):
+  await state.clear()
+  await callback.message.edit_text(
+      "Главное меню экономики:", reply_markup=main_menu()
+  )
+  await callback.answer()
 
 
 async def main():
-  print("Бот запущен и готов к работе...")
+  print("Экономический бот запущен...")
   await dp.start_polling(bot)
 
 
