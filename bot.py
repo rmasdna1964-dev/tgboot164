@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import time
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -19,7 +20,10 @@ users_db = {}
 
 def get_user(user_id: int):
   if user_id not in users_db:
-    users_db[user_id] = {"balance": 500}  # Стартовый бонус 500 коинов
+    users_db[user_id] = {
+        "balance": 500,
+        "last_bonus": 0,  # Время последнего получения бонуса
+    }
   return users_db[user_id]
 
 
@@ -33,7 +37,7 @@ class GameStates(StatesGroup):
 def main_menu():
   builder = InlineKeyboardBuilder()
   builder.button(text="👤 Мой профиль", callback_data="profile")
-  builder.button(text="🎁 Ежедневный бонус", callback_data="daily_bonus")
+  builder.button(text="🎁 Ежедневный бонус (24ч)", callback_data="daily_bonus")
   builder.button(text="⚔️ Дуэль КНБ (100 коинов)", callback_data="start_rps")
   builder.button(text="🎲 Кости (Угадай число)", callback_data="menu_dice")
   builder.button(text="🏀 Баскетбол (Попади в кольцо)", callback_data="menu_basket")
@@ -72,13 +76,36 @@ async def show_profile(callback: types.CallbackQuery):
   await callback.answer()
 
 
+# ================= ЕЖЕДНЕВНЫЙ БОНУС (24 ЧАСА) =================
 @dp.callback_query(F.data == "daily_bonus")
 async def daily_bonus(callback: types.CallbackQuery):
-  user_data = get_user(callback.from_user.id)
-  user_data["balance"] += 200
+  user_id = callback.from_user.id
+  user_data = get_user(user_id)
+
+  current_time = time.time()
+  cooldown = 24 * 60 * 60  # 24 часа в секундах
+  time_passed = current_time - user_data["last_bonus"]
+
+  if time_passed < cooldown:
+    # Считаем, сколько осталось ждать
+    left_seconds = int(cooldown - time_passed)
+    hours = left_seconds // 3600
+    minutes = (left_seconds % 3600) // 60
+    await callback.answer(
+        f"⏳ Ежедневный бонус еще не доступен!\nПриходите через {hours} ч."
+        f" {minutes} мин.",
+        show_alert=True,
+    )
+    return
+
+  # Выдаем бонус
+  user_data["last_bonus"] = current_time
+  bonus_amount = 300
+  user_data["balance"] += bonus_amount
 
   await callback.answer(
-      "🎉 Успешно! Вы получили бонус +200 коинов!", show_alert=True
+      f"🎁 Успешно! Вы забрали ежедневный бонус: +{bonus_amount} коинов!",
+      show_alert=True,
   )
   await show_profile(callback)
 
@@ -301,13 +328,14 @@ async def withdraw_stars(callback: types.CallbackQuery):
   await callback.message.edit_text(
       "Заявка успешно оформлена!\n\n"
       "С вашего баланса списано 50 000 коинов.\n"
-      "Администратор вскоре проверит запрос и переведет 15 Telegram Stars (⭐).",
+      "Для получения 15 Telegram Stars (⭐) напишите администратору: "
+      "@vouch_01",
       reply_markup=builder.as_markup(),
   )
 
 
 async def main():
-  print("Бот успешно запущен и работает без ошибок парсинга...")
+  print("Бот успешно запущен и работает...")
   await dp.start_polling(bot)
 
 
