@@ -25,15 +25,17 @@ def get_user(user_id: int):
 
 class GameStates(StatesGroup):
   playing_rps = State()
+  waiting_result = State()  # Состояние ожидания результата
 
 
+# Главное меню с красивым дизайном кнопок
 def main_menu():
   builder = InlineKeyboardBuilder()
-  builder.button(text="👤 Профиль", callback_data="profile")
-  builder.button(text="🎁 Бонус", callback_data="daily_bonus")
-  builder.button(text="🎮 Играть (КНБ)", callback_data="play_menu")
-  builder.button(text="🌟 Вывод звезд (50k коинов)", callback_data="withdraw")
-  builder.adjust(2, 2)
+  builder.button(text="👤 Мой профиль", callback_data="profile")
+  builder.button(text="🎁 Ежедневный бонус", callback_data="daily_bonus")
+  builder.button(text="⚔️ Играть в КНБ (100 коинов)", callback_data="play_menu")
+  builder.button(text="🌟 Вывод 15 Звезд (50k)", callback_data="withdraw")
+  builder.adjust(1, 1, 1, 1)  расположение кнопками в столбик для красоты
   return builder.as_markup()
 
 
@@ -44,28 +46,30 @@ async def cmd_start(message: types.Message, state: FSMContext):
   get_user(user.id)
 
   text = (
-      f"Привет, {user.first_name}!\n\n"
-      "Добро пожаловать в экономическую мини-игру!\n"
-      "• Зарабатывай коины в играх.\n"
-      "• Получай ежедневные бонусы.\n"
-      "• Обменивай 50 000 коинов на 15 Telegram Stars!\n\n"
-      "Выбирай раздел в меню ниже:"
+      f"✨ **Привет, {user.first_name}!** ✨\n\n"
+      "Добро пожаловать в экономический мини-мир игр!\n"
+      "🔹 Зарабатывай коины на дуэлях\n"
+      "🔹 Забирай бонусы каждый день\n"
+      "🔹 Обменивай коины на реальные Telegram Stars\n\n"
+      "👇 Выбери нужный раздел в меню:"
   )
-  await message.answer(text, reply_markup=main_menu())
+  await message.answer(text, reply_markup=main_menu(), parse_mode="Markdown")
 
 
 @dp.callback_query(F.data == "profile")
 async def show_profile(callback: types.CallbackQuery):
   user_data = get_user(callback.from_user.id)
   text = (
-      "👤 Твой профиль:\n\n"
-      f"💰 Баланс: {user_data['balance']} коинов\n"
-      "⭐ Курс вывода: 50 000 коинов = 15 Звезд"
+      "📊 **Твой игровой профиль:**\n\n"
+      f"💰 Баланс: **{user_data['balance']} коинов**\n"
+      "⭐ Курс обмена: 50 000 коинов = 15 Telegram Stars"
   )
   builder = InlineKeyboardBuilder()
-  builder.button(text="◀️ Назад", callback_data="back_home")
+  builder.button(text="◀️ Назад в меню", callback_data="back_home")
 
-  await callback.message.edit_text(text, reply_markup=builder.as_markup())
+  await callback.message.edit_text(
+      text, reply_markup=builder.as_markup(), parse_mode="Markdown"
+  )
   await callback.answer()
 
 
@@ -75,7 +79,7 @@ async def daily_bonus(callback: types.CallbackQuery):
   user_data["balance"] += 200
 
   await callback.answer(
-      "🎁 Ты получил ежедневный бонус: +200 коинов!", show_alert=True
+      "🎉 Успешно! Вы получили бонус +200 коинов!", show_alert=True
   )
   await show_profile(callback)
 
@@ -84,15 +88,18 @@ async def daily_bonus(callback: types.CallbackQuery):
 async def play_menu(callback: types.CallbackQuery):
   builder = InlineKeyboardBuilder()
   builder.button(
-      text="⚔️ Дуэль КНБ (ставка 100 коинов)", callback_data="start_rps"
+      text="✊ Камень, ✋ Бумага, ✌️ Ножницы", callback_data="start_rps"
   )
-  builder.button(text="◀️ Назад", callback_data="back_home")
+  builder.button(text="◀️ Назад в меню", callback_data="back_home")
   builder.adjust(1)
 
   await callback.message.edit_text(
-      "🎮 Выбери игру:\n\n"
-      "В «Камень, ножницы, бумага» ставка составляет 100 коинов. Победитель забирает 200!",
+      "🎮 **Игровой зал дуэлей:**\n\n"
+      "• Ставка за игру: **100 коинов**\n"
+      "• При победе ты забираешь: **200 коинов**!\n\n"
+      "Сделай шаг навстречу богатству 👇",
       reply_markup=builder.as_markup(),
+      parse_mode="Markdown",
   )
 
 
@@ -101,7 +108,7 @@ async def start_rps(callback: types.CallbackQuery, state: FSMContext):
   user_data = get_user(callback.from_user.id)
   if user_data["balance"] < 100:
     await callback.answer(
-        "❌ Недостаточно коинов! Нужно минимум 100 коинов.", show_alert=True
+        "❌ Недостаточно средств! Нужно минимум 100 коинов.", show_alert=True
     )
     return
 
@@ -114,15 +121,27 @@ async def start_rps(callback: types.CallbackQuery, state: FSMContext):
   builder.adjust(3)
 
   await callback.message.edit_text(
-      "⚔️ Ставка 100 коинов принята!\nСделай свой выбор:",
+      "⚔️ **Ставка 100 коинов принята!**\nВыберите свой ход:",
       reply_markup=builder.as_markup(),
+      parse_mode="Markdown",
   )
   await state.set_state(GameStates.playing_rps)
 
 
+# Обработка выбора с ожиданием 2 секунды
 @dp.callback_query(GameStates.playing_rps, F.data.startswith("rps_"))
 async def process_rps(callback: types.CallbackQuery, state: FSMContext):
   user_choice = callback.data.split("_")[1]
+
+  # Шаг 1: Показываем красивое сообщение об ожидании
+  await callback.message.edit_text(
+      "⏳ **Бот думает над ходом...**\n*Ожидание результатов (2 сек)* 🎲",
+      parse_mode="Markdown",
+  )
+
+  # Пауза ровно 2 секунды
+  await asyncio.sleep(2)
+
   bot_choice = random.choice(["rock", "paper", "scissors"])
   user_data = get_user(callback.from_user.id)
 
@@ -130,30 +149,33 @@ async def process_rps(callback: types.CallbackQuery, state: FSMContext):
 
   if user_choice == bot_choice:
     user_data["balance"] += 100
-    res = "🤝 Ничья! Ставка возвращена."
+    res = "🤝 **Ничья!** Ваша ставка возвращена на баланс."
   elif (
       (user_choice == "rock" and bot_choice == "scissors")
       or (user_choice == "paper" and bot_choice == "rock")
       or (user_choice == "scissors" and bot_choice == "paper")
   ):
     user_data["balance"] += 200
-    res = "🎉 Ты победил и выиграл 200 коинов!"
+    res = "🏆 **Потрясающе! Ты победил и забрал 200 коинов!**"
   else:
-    res = "😢 Ты проиграл ставку 100 коинов."
+    res = "😢 **Увы, в этот раз удача на стороне бота. Ставка сгорела.**"
 
   builder = InlineKeyboardBuilder()
-  builder.button(text="🎮 Играть еще", callback_data="play_menu")
-  builder.button(text="🏠 В меню", callback_data="back_home")
-  builder.adjust(2)
+  builder.button(text="🔄 Сыграть еще раз", callback_data="play_menu")
+  builder.button(text="🏠 Главное меню", callback_data="back_home")
+  builder.adjust(1)
 
   text = (
-      f"Твой выбор: {names[user_choice]}\n"
-      f"Выбор бота: {names[bot_choice]}\n\n"
+      f"🎯 **ИТОГИ ДУЭЛИ**\n\n"
+      f"👤 Твой выбор: {names[user_choice]}\n"
+      f"🤖 Выбор бота: {names[bot_choice]}\n\n"
       f"{res}\n\n"
-      f"💰 Твой баланс: {user_data['balance']} коинов"
+      f"💰 Твой текущий баланс: **{user_data['balance']} коинов**"
   )
 
-  await callback.message.edit_text(text, reply_markup=builder.as_markup())
+  await callback.message.edit_text(
+      text, reply_markup=builder.as_markup(), parse_mode="Markdown"
+  )
   await state.clear()
 
 
@@ -164,7 +186,7 @@ async def withdraw_stars(callback: types.CallbackQuery):
 
   if user_data["balance"] < price:
     await callback.answer(
-        f"❌ Недостаточно коинов! У тебя {user_data['balance']}, а нужно {price}.",
+        f"❌ Недостаточно коинов! У вас {user_data['balance']}, а нужно {price}.",
         show_alert=True,
     )
     return
@@ -174,22 +196,24 @@ async def withdraw_stars(callback: types.CallbackQuery):
   try:
     await bot.send_message(
         ADMIN_ID,
-        "🚨 Заявка на вывод звезд!\n\n"
-        f"От пользователя: @{user.username} (ID: {user.id})\n"
-        f"Списано коинов: {price}\n"
-        "Сумма к выдаче: 15 Звезд (⭐)",
+        "🚨 **НОВАЯ ЗАЯВКА НА ВЫВОД ЗВЕЗД!**\n\n"
+        f"👤 Пользователь: @{user.username} (ID: `{user.id}`)\n"
+        f"💸 Списано коинов: {price}\n"
+        "⭐ К выдаче: **15 Telegram Stars**",
+        parse_mode="Markdown",
     )
   except Exception:
     pass
 
   builder = InlineKeyboardBuilder()
-  builder.button(text="🏠 В меню", callback_data="back_home")
+  builder.button(text="🏠 На главную", callback_data="back_home")
 
   await callback.message.edit_text(
-      "✅ Заявка успешно создана!\n\n"
+      "✅ **Заявка успешно оформлена!**\n\n"
       "С вашего баланса списано 50 000 коинов.\n"
-      "Администратор скоро свяжется с вами и отправит 15 Telegram Stars (⭐).",
+      "Администратор вскоре проверит запрос и переведет 15 Telegram Stars (⭐).",
       reply_markup=builder.as_markup(),
+      parse_mode="Markdown",
   )
 
 
@@ -197,13 +221,15 @@ async def withdraw_stars(callback: types.CallbackQuery):
 async def back_home(callback: types.CallbackQuery, state: FSMContext):
   await state.clear()
   await callback.message.edit_text(
-      "Главное меню экономики:", reply_markup=main_menu()
+      "✨ **Главное меню экономики:**",
+      reply_markup=main_menu(),
+      parse_mode="Markdown",
   )
   await callback.answer()
 
 
 async def main():
-  print("Экономический бот запущен...")
+  print("Бот с задержкой и дизайном успешно запущен...")
   await dp.start_polling(bot)
 
 
